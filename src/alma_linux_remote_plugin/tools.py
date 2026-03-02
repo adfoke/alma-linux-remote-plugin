@@ -32,3 +32,6 @@ def download_file(host_name: str, remote_path: str, local_path: str) -> str:
     """原子下载"""
     SSHManager.download_file(host_name, remote_path, local_path)
     return f"下载成功 {remote_path} → {local_path} @ {host_name}"
+
+# 防止 pytest 把生产函数 test_connection 误当成测试函数
+test_connection.__test__ = False
