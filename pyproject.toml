@@ -1,7 +1,7 @@
 [project]
 name = "alma-linux-remote-plugin"
 version = "0.4.0"
-description = "Alma Skill - Minimal stateless Linux remote for AI agents"
+description = "Alma Skill - Stateful Linux remote with persistent SSH sessions for AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
