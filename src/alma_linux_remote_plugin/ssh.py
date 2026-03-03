@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 import os
+
 import paramiko
+
 from .config import load_hosts
 from .models import CommandResult, HostConfig
 
+
 class SSHManager:
-    """完全无状态：每次调用独立连接，执行完立即关闭"""
+    """完全无状态：每次调用独立连接，执行完立即关闭。"""
 
     @staticmethod
     def _connect(client: paramiko.SSHClient, host_cfg: HostConfig, timeout: int = 30):
@@ -43,7 +48,7 @@ class SSHManager:
         client = paramiko.SSHClient()
         try:
             SSHManager._connect(client, host_cfg, timeout)
-            stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
+            _, stdout, stderr = client.exec_command(command, timeout=timeout)
             out = stdout.read().decode("utf-8", errors="replace").strip()
             err = stderr.read().decode("utf-8", errors="replace").strip()
             exit_code = stdout.channel.recv_exit_status()
@@ -52,7 +57,7 @@ class SSHManager:
                 exit_code=exit_code,
                 stdout=out,
                 stderr=err,
-                success=exit_code == 0
+                success=exit_code == 0,
             )
         finally:
             client.close()
@@ -60,6 +65,8 @@ class SSHManager:
     @staticmethod
     def upload_file(host_name: str, local_path: str, remote_path: str, timeout: int = 30):
         hosts = load_hosts()
+        if host_name not in hosts:
+            raise ValueError(f"主机 {host_name} 未配置")
         host_cfg = hosts[host_name]
         client = paramiko.SSHClient()
         try:
@@ -72,6 +79,8 @@ class SSHManager:
     @staticmethod
     def download_file(host_name: str, remote_path: str, local_path: str, timeout: int = 30):
         hosts = load_hosts()
+        if host_name not in hosts:
+            raise ValueError(f"主机 {host_name} 未配置")
         host_cfg = hosts[host_name]
         client = paramiko.SSHClient()
         try:

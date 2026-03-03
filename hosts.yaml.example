@@ -11,3 +11,12 @@ hosts:
     auth:
       method: key
       key_path: ~/.ssh/id_ed25519
+
+session:
+  idle_timeout_seconds: 300
+
+audit:
+  enabled: true
+  db_path: ./logs/audit.db
+  dashboard_host: 127.0.0.1
+  dashboard_port: 8765

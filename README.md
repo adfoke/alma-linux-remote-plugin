@@ -1,39 +1,77 @@
 # alma-linux-remote-plugin
 
-**专为 Alma AI Agent 设计的原子级无状态 Linux SSH Skill**
+> 专为 Alma AI Agent 设计的 Linux 远程运维插件（SSH/SFTP，持久会话版）
 
-一个极简、可靠、无状态的 Linux 远程管理插件，专为 Alma 设计。只保留最纯的原子操作，完美适配 LangGraph、CrewAI、AutoGen 等 AI Agent 框架。
+`alma-linux-remote-plugin` 提供一组可被 Agent 调用的工具，用于：
 
----
+- 列出主机
+- 测试 SSH 连通性
+- 在远程主机执行命令
+- 上传文件到远程主机
+- 从远程主机下载文件
 
-## ✨ 特性
-
-- **完全无状态**：每次调用独立 SSH 连接，执行完立即关闭，无 session_id 管理负担
-- **原子级操作**：5 个最核心工具，AI 直接 tool-call
-- **Alma Skill 原生支持**：严格遵循官方 `manifest.json` + `runtime_adapter.py` 规范
-- **安全优先**：密码/密钥均通过环境变量传入，连接用时创建、用完即毁
-- **uv 管理**：现代 Python 项目管理，安装极简
-- **支持密码 & SSH 密钥** 两种认证方式
+项目基于 `paramiko`，并支持**懒加载持久会话**（`test_connection/run_command/upload_file/download_file` 全部走 `SessionManager`）。
 
 ---
 
-## 📦 安装
+## 功能特性
+
+- ✅ 持久会话连通性测试（`test_connection`，有会话复用，无会话自动创建）
+- ✅ 持久会话命令执行（`run_command`）
+- ✅ SFTP 上传/下载（`upload_file` / `download_file`）
+- ✅ YAML 主机配置加载（`hosts.yaml`）
+- ✅ 环境变量注入密码（`.env` + `python-dotenv`）
+- ✅ SQLite 审计日志（默认 `./logs/audit.db`）
+
+---
+
+## 安装
+
+推荐使用 `uv`：
 
 ```bash
-# 1. 创建项目（如果还没有）
-uv init alma-linux-remote-plugin --lib
-cd alma-linux-remote-plugin
+uv sync --all-extras
+```
 
-# 2. 安装依赖
-uv sync
-uv pip install -e .
+或用 pip：
 
-⚙️ 配置
+```bash
+pip install -e .[dev]
+```
 
-复制配置文件Bashcp hosts.yaml.example hosts.yaml
+---
+
+## 配置
+
+### 1) 环境变量
+
+复制并编辑：
+
+```bash
 cp .env.example .env
-编辑 hosts.yamlYAMLhosts:
-  my-server:          # ← 主机别名，AI 会用这个名称调用
+```
+
+`.env.example` 示例：
+
+```env
+MY_SERVER_PASS=your_real_password
+```
+
+> 密码认证主机会从 `password_env` 对应变量读取密码。
+
+### 2) 主机配置
+
+复制模板：
+
+```bash
+cp hosts.yaml.example hosts.yaml
+```
+
+`hosts.yaml.example` 当前内容：
+
+```yaml
+hosts:
+  my-server:
     host: 192.168.1.100
     username: root
     auth:
@@ -45,45 +83,118 @@ cp .env.example .env
     auth:
       method: key
       key_path: ~/.ssh/id_ed25519
-编辑 .envenvMY_SERVER_PASS=你的真实密码
+```
 
+你也可以加上可选配置：
 
-🛠️ 可用工具（Alma 会自动注册）
-工具名称描述参数返回值类型list_hosts列出所有可用主机无List[str]test_connection测试连通性host_name, timeout?strrun_command执行单条命令（核心）host_name, command, timeout?CommandResultupload_file上传文件host_name, local_path, remote_pathstr（成功提示）download_file下载文件host_name, remote_path, local_pathstr（成功提示）
-run_command 返回示例：
-JSON{
-  "command": "uptime",
-  "exit_code": 0,
-  "stdout": " 14:30:01 up 3 days...",
-  "stderr": "",
-  "success": true
-}
+```yaml
+session:
+  idle_timeout_seconds: 300
 
-🚀 在 Alma 中使用示例
-Alma 会自动发现并注册这些工具，你可以直接在对话中让 AI 使用：
-textAI：请帮我检查服务器 my-server 的磁盘使用情况
-→ Alma 调用 run_command("my-server", "df -h")
-textAI：把本地的 deploy.sh 上传到 /opt/app/
-→ Alma 调用 upload_file(...)
+audit:
+  enabled: true
+  db_path: ./logs/audit.db
+  dashboard_host: 127.0.0.1
+  dashboard_port: 8765
+```
 
-📁 文件结构
-textalma-linux-remote-plugin/
-├── manifest.json
-├── README.md
-├── hosts.yaml.example
-├── .env.example
-├── pyproject.toml
-└── src/
-    └── alma_linux_remote_plugin/
-        ├── __init__.py
-        ├── runtime_adapter.py   # Alma 入口
-        ├── tools.py             # 纯函数
-        ├── ssh.py
-        ├── config.py
-        └── models.py
+---
 
-🔒 安全注意事项
+## 审计日志后台页面
 
-密码/密钥只通过环境变量传入，绝不硬编码
-每次操作独立连接，无持久会话
-生产环境建议使用 SSH 密钥 + AutoAddPolicy 可根据需要改为 RejectPolicy
+已改为数据库模式，不再写 `audit.jsonl` 文件。
+
+默认配置：
+
+- `db_path = ./logs/audit.db`
+- `dashboard_host = 127.0.0.1`
+- `dashboard_port = 8765`
+
+你可以在运行时启动日志后台页面（FastAPI + Uvicorn）：
+
+```python
+from alma_linux_remote_plugin.audit import AuditLogger
+
+url = AuditLogger().start_dashboard()
+print(url)  # 例如 http://127.0.0.1:8765
+```
+
+可用接口：
+
+- `GET /`：日志页面
+- `GET /api/logs?page=1&page_size=50&host_name=xxx&operation_type=yyy&start_time=2026-03-03T00:00:00Z&end_time=2026-03-03T23:59:59Z`
+
+说明：
+
+- 支持分页：`page`、`page_size`
+- 支持时间范围过滤（ISO8601）：`start_time`、`end_time`
+
+---
+
+## 工具列表（Runtime Adapter）
+
+- `list_hosts()`
+- `test_connection(host_name, timeout=15)`
+- `run_command(host_name, command, timeout=60)`
+- `upload_file(host_name, local_path, remote_path)`
+- `download_file(host_name, remote_path, local_path)`
+
+对应入口：
+
+- `src/alma_linux_remote_plugin/runtime_adapter.py`
+- `manifest.json`（插件元信息）
+
+---
+
+## Python 快速调用示例
+
+```python
+from alma_linux_remote_plugin.runtime_adapter import invoke
+
+# 列出主机
+print(invoke("list_hosts", {}))
+
+# 测试连接
+print(invoke("test_connection", {"host_name": "my-server"}))
+
+# 执行命令
+res = invoke("run_command", {
+    "host_name": "my-server",
+    "command": "uname -a"
+})
+print(res)
+```
+
+---
+
+## 开发与测试
+
+运行测试：
+
+```bash
+uv run pytest -q
+```
+
+代码检查：
+
+```bash
+uv run ruff check src tests
+```
+
+---
+
+## 常见问题
+
+### `hosts 文件不存在`
+
+请确认当前工作目录下存在 `hosts.yaml`，并且文件名正确。
+
+### `环境变量 XXX 未设置`
+
+请确认 `.env` 中已配置对应变量，或在系统环境变量中导出。
+
+---
+
+## 许可证
+
+MIT License，见 [LICENSE](./LICENSE)。

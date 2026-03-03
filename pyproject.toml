@@ -1,6 +1,6 @@
 [project]
 name = "alma-linux-remote-plugin"
-version = "0.2.0"
+version = "0.3.0"
 description = "Alma Skill - Minimal stateless Linux remote for AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -8,7 +8,9 @@ dependencies = [
     "paramiko>=3.5.0",
     "pydantic>=2.9.0",
     "PyYAML>=6.0.1",
-    "python-dotenv>=1.0.1"
+    "python-dotenv>=1.0.1",
+    "fastapi>=0.135.1",
+    "uvicorn>=0.41.0",
 ]
 
 [project.optional-dependencies]

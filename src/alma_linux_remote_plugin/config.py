@@ -1,23 +1,51 @@
-import os
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
+
 import yaml
 from dotenv import load_dotenv
-from .models import HostConfig, HostAuth
+
+from .models import AuditConfig, HostAuth, HostConfig, PluginConfig
 
 load_dotenv()
 
-def load_hosts(config_path: str = "hosts.yaml") -> Dict[str, HostConfig]:
+
+def _read_yaml(config_path: str = "hosts.yaml") -> Dict[str, Any]:
     path = Path(config_path).expanduser().resolve()
     if not path.exists():
-        raise FileNotFoundError(f"hosts 文件不存在: {path}。请复制 hosts.yaml.example 并重命名为 hosts.yaml")
-    
-    with open(path, encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-    
+        raise FileNotFoundError(
+            f"hosts 文件不存在: {path}。请复制 hosts.yaml.example 并重命名为 hosts.yaml"
+        )
+
+    with path.open(encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def load_hosts(config_path: str = "hosts.yaml") -> Dict[str, HostConfig]:
+    data = _read_yaml(config_path)
     hosts_raw = data.get("hosts", {})
+
     hosts: Dict[str, HostConfig] = {}
     for name, cfg in hosts_raw.items():
-        auth_data = cfg.pop("auth", {})
-        hosts[name] = HostConfig(**cfg, auth=HostAuth(**auth_data))
+        cfg_data = dict(cfg or {})
+        auth_data = cfg_data.pop("auth", {})
+        hosts[name] = HostConfig(**cfg_data, auth=HostAuth(**auth_data))
     return hosts
+
+
+def load_config(config_path: str = "hosts.yaml") -> PluginConfig:
+    """Load optional plugin settings (session/audit). Missing file falls back to defaults."""
+    try:
+        data = _read_yaml(config_path)
+    except FileNotFoundError:
+        return PluginConfig()
+
+    return PluginConfig(
+        session=data.get("session", {}),
+        audit=data.get("audit", {}),
+    )
+
+
+def load_audit_config(config_path: str = "hosts.yaml") -> AuditConfig:
+    return load_config(config_path).audit

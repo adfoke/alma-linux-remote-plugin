@@ -8,3 +8,11 @@ wheels/
 
 # Virtual environments
 .venv
+.env
+hosts.yaml
+logs/
+*.db
+.coverage
+*.key
+server_profiles/
+.alma-snapshots
