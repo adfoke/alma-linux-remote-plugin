@@ -1,8 +1,14 @@
 from unittest.mock import MagicMock
 
-from alma_linux_remote_plugin.models import BatchCommandItem, BatchCommandResult
+from alma_linux_remote_plugin.models import (
+    BatchCommandItem,
+    BatchCommandResult,
+    BatchTransferItem,
+    BatchTransferResult,
+)
 from alma_linux_remote_plugin.tools import (
     download_file,
+    download_file_batch,
     get_audit_web_server_status,
     list_hosts,
     run_command,
@@ -11,6 +17,7 @@ from alma_linux_remote_plugin.tools import (
     stop_audit_web_server,
     test_connection as tool_test_connection,
     test_connection_batch,
+    upload_file_batch,
     upload_file,
 )
 
@@ -127,6 +134,37 @@ def test_upload_file(monkeypatch):
     assert "上传成功" in result
 
 
+def test_upload_file_batch(monkeypatch):
+    monkeypatch.setattr(
+        "alma_linux_remote_plugin.tools.SessionManager.upload_file_batch",
+        lambda *args, **kwargs: BatchTransferResult(
+            total=2,
+            success_count=2,
+            failure_count=0,
+            items=[
+                BatchTransferItem(
+                    host_name="h1",
+                    success=True,
+                    message="上传成功 a.txt → /tmp/a.txt",
+                    local_path="a.txt",
+                    remote_path="/tmp/a.txt",
+                ),
+                BatchTransferItem(
+                    host_name="h2",
+                    success=True,
+                    message="上传成功 a.txt → /tmp/a.txt",
+                    local_path="a.txt",
+                    remote_path="/tmp/a.txt",
+                ),
+            ],
+        ),
+    )
+
+    result = upload_file_batch(["h1", "h2"], "a.txt", "/tmp/a.txt")
+
+    assert result.total == 2
+
+
 def test_download_file(monkeypatch):
     monkeypatch.setattr(
         "alma_linux_remote_plugin.tools.SessionManager.download_file",
@@ -135,6 +173,38 @@ def test_download_file(monkeypatch):
 
     result = download_file("test-server", "/remote.sh", "local.sh")
     assert "下载成功" in result
+
+
+def test_download_file_batch(monkeypatch):
+    monkeypatch.setattr(
+        "alma_linux_remote_plugin.tools.SessionManager.download_file_batch",
+        lambda *args, **kwargs: BatchTransferResult(
+            total=2,
+            success_count=1,
+            failure_count=1,
+            items=[
+                BatchTransferItem(
+                    host_name="h1",
+                    success=True,
+                    message="下载成功 /remote.sh → /tmp/h1-remote.sh",
+                    local_path="/tmp/h1-remote.sh",
+                    remote_path="/remote.sh",
+                ),
+                BatchTransferItem(
+                    host_name="h2",
+                    success=False,
+                    message="下载失败 /remote.sh → /tmp/h2-remote.sh",
+                    local_path="/tmp/h2-remote.sh",
+                    remote_path="/remote.sh",
+                    error="boom",
+                ),
+            ],
+        ),
+    )
+
+    result = download_file_batch(["h1", "h2"], "/remote.sh", "/tmp/{host_name}-remote.sh")
+
+    assert result.failure_count == 1
 
 
 def test_list_hosts(monkeypatch):

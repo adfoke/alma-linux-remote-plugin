@@ -1,17 +1,27 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 import threading
 import time
-from typing import Any, Dict
+from typing import Any, Callable, Dict, TypeVar
 
 import paramiko
 
 from .audit import AuditLogger
 from .config import load_config, load_hosts
-from .models import BatchCommandItem, BatchCommandResult, CommandResult, SessionConfig
+from .models import (
+    BatchCommandItem,
+    BatchCommandResult,
+    BatchTransferItem,
+    BatchTransferResult,
+    CommandResult,
+    SessionConfig,
+)
 from .safety import evaluate_command_policy
 from .ssh import SSHManager
+
+T = TypeVar("T")
 
 
 class SessionManager:
@@ -80,6 +90,38 @@ class SessionManager:
                         except Exception:
                             pass
                         cls._sessions.pop(host, None)
+
+    @staticmethod
+    def _prepare_batch_hosts(host_names: list[str]) -> list[str]:
+        unique_host_names = list(dict.fromkeys(host_names))
+        if not unique_host_names:
+            raise ValueError("host_names 不能为空")
+        return unique_host_names
+
+    @staticmethod
+    def _resolve_worker_count(max_workers: int, host_count: int) -> int:
+        return max(1, min(max_workers, host_count, 10))
+
+    @classmethod
+    def _execute_batch(
+        cls,
+        host_names: list[str],
+        max_workers: int,
+        runner: Callable[[str], T],
+    ) -> list[T]:
+        unique_host_names = cls._prepare_batch_hosts(host_names)
+        worker_count = cls._resolve_worker_count(max_workers, len(unique_host_names))
+        results_by_host: Dict[str, T] = {}
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {
+                executor.submit(runner, host_name): host_name for host_name in unique_host_names
+            }
+            for future in as_completed(future_map):
+                host_name = future_map[future]
+                results_by_host[host_name] = future.result()
+
+        return [results_by_host[host_name] for host_name in unique_host_names]
 
     @classmethod
     def run_command(cls, host_name: str, command: str, timeout: int = 60) -> CommandResult:
@@ -159,12 +201,8 @@ class SessionManager:
         timeout: int = 60,
         max_workers: int = 5,
     ) -> BatchCommandResult:
-        unique_host_names = list(dict.fromkeys(host_names))
-        if not unique_host_names:
-            raise ValueError("host_names 不能为空")
-
-        worker_count = max(1, min(max_workers, len(unique_host_names), 10))
-        results_by_host: Dict[str, BatchCommandItem] = {}
+        unique_host_names = cls._prepare_batch_hosts(host_names)
+        worker_count = cls._resolve_worker_count(max_workers, len(unique_host_names))
 
         def _run_one(host_name: str) -> BatchCommandItem:
             try:
@@ -183,15 +221,7 @@ class SessionManager:
                     suggestions=[],
                 )
 
-        with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            future_map = {
-                executor.submit(_run_one, host_name): host_name for host_name in unique_host_names
-            }
-            for future in as_completed(future_map):
-                host_name = future_map[future]
-                results_by_host[host_name] = future.result()
-
-        ordered_items = [results_by_host[host_name] for host_name in unique_host_names]
+        ordered_items = cls._execute_batch(unique_host_names, worker_count, _run_one)
         success_count = sum(1 for item in ordered_items if item.success)
         batch_result = BatchCommandResult(
             total=len(ordered_items),
@@ -204,6 +234,124 @@ class SessionManager:
             ",".join(unique_host_names),
             {
                 "command": command,
+                "host_count": len(unique_host_names),
+                "success_count": batch_result.success_count,
+                "failure_count": batch_result.failure_count,
+                "max_workers": worker_count,
+                "hosts": unique_host_names,
+            },
+        )
+        return batch_result
+
+    @classmethod
+    def upload_file_batch(
+        cls,
+        host_names: list[str],
+        local_path: str,
+        remote_path: str,
+        max_workers: int = 5,
+    ) -> BatchTransferResult:
+        unique_host_names = cls._prepare_batch_hosts(host_names)
+        worker_count = cls._resolve_worker_count(max_workers, len(unique_host_names))
+
+        def _run_one(host_name: str) -> BatchTransferItem:
+            try:
+                message = cls.upload_file(host_name, local_path, remote_path)
+                return BatchTransferItem(
+                    host_name=host_name,
+                    success=True,
+                    message=message,
+                    local_path=local_path,
+                    remote_path=remote_path,
+                )
+            except Exception as exc:
+                return BatchTransferItem(
+                    host_name=host_name,
+                    success=False,
+                    message=f"上传失败 {local_path} → {remote_path}",
+                    local_path=local_path,
+                    remote_path=remote_path,
+                    error=str(exc),
+                )
+
+        ordered_items = cls._execute_batch(unique_host_names, worker_count, _run_one)
+        success_count = sum(1 for item in ordered_items if item.success)
+        batch_result = BatchTransferResult(
+            total=len(ordered_items),
+            success_count=success_count,
+            failure_count=len(ordered_items) - success_count,
+            items=ordered_items,
+        )
+        AuditLogger().log(
+            "upload_file_batch",
+            ",".join(unique_host_names),
+            {
+                "local_path": local_path,
+                "remote_path": remote_path,
+                "host_count": len(unique_host_names),
+                "success_count": batch_result.success_count,
+                "failure_count": batch_result.failure_count,
+                "max_workers": worker_count,
+                "hosts": unique_host_names,
+            },
+        )
+        return batch_result
+
+    @classmethod
+    def download_file_batch(
+        cls,
+        host_names: list[str],
+        remote_path: str,
+        local_path_template: str,
+        max_workers: int = 5,
+    ) -> BatchTransferResult:
+        if "{host_name}" not in local_path_template:
+            raise ValueError("local_path_template 必须包含 {host_name} 占位符")
+
+        unique_host_names = cls._prepare_batch_hosts(host_names)
+        worker_count = cls._resolve_worker_count(max_workers, len(unique_host_names))
+
+        def _render_local_path(host_name: str) -> str:
+            return local_path_template.format(
+                host_name=host_name,
+                remote_basename=Path(remote_path).name,
+            )
+
+        def _run_one(host_name: str) -> BatchTransferItem:
+            local_path = _render_local_path(host_name)
+            try:
+                message = cls.download_file(host_name, remote_path, local_path)
+                return BatchTransferItem(
+                    host_name=host_name,
+                    success=True,
+                    message=message,
+                    local_path=local_path,
+                    remote_path=remote_path,
+                )
+            except Exception as exc:
+                return BatchTransferItem(
+                    host_name=host_name,
+                    success=False,
+                    message=f"下载失败 {remote_path} → {local_path}",
+                    local_path=local_path,
+                    remote_path=remote_path,
+                    error=str(exc),
+                )
+
+        ordered_items = cls._execute_batch(unique_host_names, worker_count, _run_one)
+        success_count = sum(1 for item in ordered_items if item.success)
+        batch_result = BatchTransferResult(
+            total=len(ordered_items),
+            success_count=success_count,
+            failure_count=len(ordered_items) - success_count,
+            items=ordered_items,
+        )
+        AuditLogger().log(
+            "download_file_batch",
+            ",".join(unique_host_names),
+            {
+                "remote_path": remote_path,
+                "local_path_template": local_path_template,
                 "host_count": len(unique_host_names),
                 "success_count": batch_result.success_count,
                 "failure_count": batch_result.failure_count,

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from .models import BatchCommandResult, BatchConnectionResult, CommandResult
+from .models import BatchCommandResult, BatchConnectionResult, BatchTransferResult, CommandResult
 from .tools import (
     download_file,
+    download_file_batch,
     get_audit_web_server_status,
     list_hosts,
     run_command,
@@ -13,6 +14,7 @@ from .tools import (
     stop_audit_web_server,
     test_connection,
     test_connection_batch,
+    upload_file_batch,
     upload_file,
 )
 
@@ -119,6 +121,27 @@ class AlmaRuntimeAdapter:
             {
                 "type": "function",
                 "function": {
+                    "name": "upload_file_batch",
+                    "description": "并发将同一个本地文件上传到多台主机的同一路径",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "host_names": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "minItems": 1,
+                            },
+                            "local_path": {"type": "string"},
+                            "remote_path": {"type": "string"},
+                            "max_workers": {"type": "integer", "default": 5},
+                        },
+                        "required": ["host_names", "local_path", "remote_path"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
                     "name": "download_file",
                     "description": "从远程主机下载文件",
                     "parameters": {
@@ -129,6 +152,27 @@ class AlmaRuntimeAdapter:
                             "local_path": {"type": "string"},
                         },
                         "required": ["host_name", "remote_path", "local_path"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "download_file_batch",
+                    "description": "并发从多台主机下载同一路径文件到按主机区分的本地路径模板",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "host_names": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "minItems": 1,
+                            },
+                            "remote_path": {"type": "string"},
+                            "local_path_template": {"type": "string"},
+                            "max_workers": {"type": "integer", "default": 5},
+                        },
+                        "required": ["host_names", "remote_path", "local_path_template"],
                     },
                 },
             },
@@ -192,8 +236,24 @@ class AlmaRuntimeAdapter:
             return result.model_dump()
         if tool_name == "upload_file":
             return upload_file(args["host_name"], args["local_path"], args["remote_path"])
+        if tool_name == "upload_file_batch":
+            result: BatchTransferResult = upload_file_batch(
+                args["host_names"],
+                args["local_path"],
+                args["remote_path"],
+                args.get("max_workers", 5),
+            )
+            return result.model_dump()
         if tool_name == "download_file":
             return download_file(args["host_name"], args["remote_path"], args["local_path"])
+        if tool_name == "download_file_batch":
+            result: BatchTransferResult = download_file_batch(
+                args["host_names"],
+                args["remote_path"],
+                args["local_path_template"],
+                args.get("max_workers", 5),
+            )
+            return result.model_dump()
         if tool_name == "start_audit_web_server":
             return start_audit_web_server(args.get("host"), args.get("port"))
         if tool_name == "stop_audit_web_server":

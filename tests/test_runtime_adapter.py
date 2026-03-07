@@ -7,7 +7,7 @@ from alma_linux_remote_plugin.runtime_adapter import adapter
 
 def test_get_tools():
     tools = adapter.get_tools()
-    assert len(tools) == 10
+    assert len(tools) == 12
 
 
 @patch("alma_linux_remote_plugin.runtime_adapter.list_hosts")
@@ -95,6 +95,58 @@ def test_invoke_upload_file(mock_upload):
         {"host_name": "h", "local_path": "l", "remote_path": "r"},
     )
     assert result == "ok"
+
+
+@patch("alma_linux_remote_plugin.runtime_adapter.upload_file_batch")
+def test_invoke_upload_file_batch(mock_upload_file_batch):
+    mock_upload_file_batch.return_value = type(
+        "R",
+        (),
+        {
+            "model_dump": lambda self: {
+                "total": 2,
+                "success_count": 2,
+                "failure_count": 0,
+                "items": [],
+            }
+        },
+    )()
+
+    result = adapter.invoke(
+        "upload_file_batch",
+        {
+            "host_names": ["h1", "h2"],
+            "local_path": "a.txt",
+            "remote_path": "/tmp/a.txt",
+        },
+    )
+    assert result["success_count"] == 2
+
+
+@patch("alma_linux_remote_plugin.runtime_adapter.download_file_batch")
+def test_invoke_download_file_batch(mock_download_file_batch):
+    mock_download_file_batch.return_value = type(
+        "R",
+        (),
+        {
+            "model_dump": lambda self: {
+                "total": 2,
+                "success_count": 1,
+                "failure_count": 1,
+                "items": [],
+            }
+        },
+    )()
+
+    result = adapter.invoke(
+        "download_file_batch",
+        {
+            "host_names": ["h1", "h2"],
+            "remote_path": "/remote.sh",
+            "local_path_template": "/tmp/{host_name}-remote.sh",
+        },
+    )
+    assert result["failure_count"] == 1
 
 
 @patch("alma_linux_remote_plugin.runtime_adapter.start_audit_web_server")

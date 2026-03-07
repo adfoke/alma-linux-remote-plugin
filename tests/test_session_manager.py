@@ -189,3 +189,72 @@ def test_run_command_batch_preserves_blocked_result(monkeypatch):
 def test_run_command_batch_requires_hosts():
     with pytest.raises(ValueError, match="host_names 不能为空"):
         SessionManager.run_command_batch([], "uptime")
+
+
+def test_upload_file_batch_collects_results_in_input_order(monkeypatch):
+    SessionManager._sessions = {}
+    SessionManager._cleanup_thread = None
+
+    monkeypatch.setattr(
+        "alma_linux_remote_plugin.session_manager.SessionManager.upload_file",
+        lambda host_name, local_path, remote_path: f"上传成功 {local_path} → {remote_path} ({host_name})",
+    )
+
+    result = SessionManager.upload_file_batch(["h1", "h2", "h1"], "a.txt", "/tmp/a.txt")
+
+    assert result.total == 2
+    assert result.success_count == 2
+    assert [item.host_name for item in result.items] == ["h1", "h2"]
+    assert result.items[0].local_path == "a.txt"
+    assert result.items[0].remote_path == "/tmp/a.txt"
+
+
+def test_upload_file_batch_captures_exception_per_host(monkeypatch):
+    SessionManager._sessions = {}
+    SessionManager._cleanup_thread = None
+
+    def fake_upload_file(host_name, local_path, remote_path):
+        if host_name == "bad":
+            raise RuntimeError("disk full")
+        return f"上传成功 {local_path} → {remote_path}"
+
+    monkeypatch.setattr(
+        "alma_linux_remote_plugin.session_manager.SessionManager.upload_file",
+        fake_upload_file,
+    )
+
+    result = SessionManager.upload_file_batch(["good", "bad"], "a.txt", "/tmp/a.txt")
+
+    assert result.total == 2
+    assert result.failure_count == 1
+    assert result.items[1].host_name == "bad"
+    assert result.items[1].success is False
+    assert result.items[1].error == "disk full"
+
+
+def test_download_file_batch_uses_template_and_preserves_order(monkeypatch):
+    SessionManager._sessions = {}
+    SessionManager._cleanup_thread = None
+
+    monkeypatch.setattr(
+        "alma_linux_remote_plugin.session_manager.SessionManager.download_file",
+        lambda host_name, remote_path, local_path: f"下载成功 {remote_path} → {local_path}",
+    )
+
+    result = SessionManager.download_file_batch(
+        ["h1", "h2"],
+        "/var/log/app.log",
+        "/tmp/{host_name}-{remote_basename}",
+    )
+
+    assert result.total == 2
+    assert result.success_count == 2
+    assert [item.local_path for item in result.items] == [
+        "/tmp/h1-app.log",
+        "/tmp/h2-app.log",
+    ]
+
+
+def test_download_file_batch_requires_host_name_placeholder():
+    with pytest.raises(ValueError, match="local_path_template 必须包含 \\{host_name\\} 占位符"):
+        SessionManager.download_file_batch(["h1"], "/var/log/app.log", "/tmp/app.log")

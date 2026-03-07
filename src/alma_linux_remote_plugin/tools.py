@@ -4,7 +4,13 @@ from typing import Any, Dict, List, Optional
 
 from .audit import AuditLogger
 from .config import load_hosts
-from .models import BatchCommandResult, BatchConnectionItem, BatchConnectionResult, CommandResult
+from .models import (
+    BatchCommandResult,
+    BatchConnectionItem,
+    BatchConnectionResult,
+    BatchTransferResult,
+    CommandResult,
+)
 from .session_manager import SessionManager
 
 
@@ -84,9 +90,34 @@ def upload_file(host_name: str, local_path: str, remote_path: str) -> str:
     return SessionManager.upload_file(host_name, local_path, remote_path)
 
 
+def upload_file_batch(
+    host_names: List[str],
+    local_path: str,
+    remote_path: str,
+    max_workers: int = 5,
+) -> BatchTransferResult:
+    """并发将同一个本地文件上传到多台主机的同一路径。"""
+    return SessionManager.upload_file_batch(host_names, local_path, remote_path, max_workers)
+
+
 def download_file(host_name: str, remote_path: str, local_path: str) -> str:
     """下载文件（自动 Session）。"""
     return SessionManager.download_file(host_name, remote_path, local_path)
+
+
+def download_file_batch(
+    host_names: List[str],
+    remote_path: str,
+    local_path_template: str,
+    max_workers: int = 5,
+) -> BatchTransferResult:
+    """并发从多台主机下载同一路径文件到按主机区分的本地路径。"""
+    return SessionManager.download_file_batch(
+        host_names,
+        remote_path,
+        local_path_template,
+        max_workers,
+    )
 
 
 def start_audit_web_server(host: Optional[str] = None, port: Optional[int] = None) -> Dict[str, Any]:

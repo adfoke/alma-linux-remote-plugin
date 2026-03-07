@@ -55,6 +55,22 @@ class BatchConnectionResult(BaseModel):
     items: list[BatchConnectionItem] = Field(default_factory=list)
 
 
+class BatchTransferItem(BaseModel):
+    host_name: str
+    success: bool
+    message: str
+    local_path: str
+    remote_path: str
+    error: Optional[str] = None
+
+
+class BatchTransferResult(BaseModel):
+    total: int
+    success_count: int
+    failure_count: int
+    items: list[BatchTransferItem] = Field(default_factory=list)
+
+
 class SessionConfig(BaseModel):
     idle_timeout_seconds: int = 300
 

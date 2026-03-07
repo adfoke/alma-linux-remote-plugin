@@ -1,7 +1,7 @@
 {
   "id": "alma-linux-remote-plugin",
   "name": "Linux Remote (Persistent)",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "专为 Alma AI Agent 设计的持久会话 Linux SSH 操作插件",
   "author": {
     "name": "adfoke",
@@ -26,7 +26,9 @@
       { "id": "run_command", "name": "执行命令", "description": "在指定主机执行单条 shell 命令" },
       { "id": "run_command_batch", "name": "批量执行命令", "description": "并发在多台主机执行同一条 shell 命令" },
       { "id": "upload_file", "name": "上传文件", "description": "上传本地文件到远程主机" },
+      { "id": "upload_file_batch", "name": "批量上传文件", "description": "并发将同一个本地文件上传到多台主机" },
       { "id": "download_file", "name": "下载文件", "description": "从远程主机下载文件到本地" },
+      { "id": "download_file_batch", "name": "批量下载文件", "description": "并发从多台主机下载文件到按主机区分的本地路径" },
       { "id": "start_audit_web_server", "name": "启动审计后台", "description": "按需启动 SQLite 审计日志 Web 服务" },
       { "id": "stop_audit_web_server", "name": "停止审计后台", "description": "停止 SQLite 审计日志 Web 服务" },
       { "id": "get_audit_web_server_status", "name": "审计后台状态", "description": "查看 SQLite 审计日志 Web 服务是否在运行" }

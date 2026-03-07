@@ -178,7 +178,9 @@ print(invoke("stop_audit_web_server", {}))
 - `run_command(host_name, command, timeout=60)`
 - `run_command_batch(host_names, command, timeout=60, max_workers=5)`
 - `upload_file(host_name, local_path, remote_path)`
+- `upload_file_batch(host_names, local_path, remote_path, max_workers=5)`
 - `download_file(host_name, remote_path, local_path)`
+- `download_file_batch(host_names, remote_path, local_path_template, max_workers=5)`
 - `start_audit_web_server(host=None, port=None)`
 - `stop_audit_web_server()`
 - `get_audit_web_server_status()`
@@ -221,10 +223,29 @@ batch_res = invoke("run_command_batch", {
     "max_workers": 3
 })
 print(batch_res)
+
+# 批量上传同一个文件到多台主机
+upload_res = invoke("upload_file_batch", {
+    "host_names": ["web-1", "web-2"],
+    "local_path": "./deploy.sh",
+    "remote_path": "/tmp/deploy.sh",
+    "max_workers": 2
+})
+print(upload_res)
+
+# 批量下载同一路径文件到按主机区分的本地路径
+download_res = invoke("download_file_batch", {
+    "host_names": ["web-1", "web-2"],
+    "remote_path": "/var/log/nginx/access.log",
+    "local_path_template": "./downloads/{host_name}-{remote_basename}",
+    "max_workers": 2
+})
+print(download_res)
 ```
 
 `run_command_batch` 会并发执行，但返回结果顺序会保持与 `host_names` 输入一致。
 单台主机失败或被策略拦截时，不会中断整批任务；请检查返回中的 `success`、`blocked` 与 `reason` 字段。
+`download_file_batch` 要求 `local_path_template` 至少包含 `{host_name}`，可选再带 `{remote_basename}`，避免多台主机下载到同一个本地文件。
 
 ---
 
