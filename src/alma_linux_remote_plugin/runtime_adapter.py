@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from .models import CommandResult
+from .models import BatchCommandResult, BatchConnectionResult, CommandResult
 from .tools import (
     download_file,
     get_audit_web_server_status,
     list_hosts,
     run_command,
+    run_command_batch,
     start_audit_web_server,
     stop_audit_web_server,
     test_connection,
+    test_connection_batch,
     upload_file,
 )
 
@@ -44,6 +46,26 @@ class AlmaRuntimeAdapter:
             {
                 "type": "function",
                 "function": {
+                    "name": "test_connection_batch",
+                    "description": "并发测试多台主机连通性，返回逐台结果",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "host_names": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "minItems": 1,
+                            },
+                            "timeout": {"type": "integer", "default": 15},
+                            "max_workers": {"type": "integer", "default": 5},
+                        },
+                        "required": ["host_names"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
                     "name": "run_command",
                     "description": "在持久会话中执行命令",
                     "parameters": {
@@ -54,6 +76,27 @@ class AlmaRuntimeAdapter:
                             "timeout": {"type": "integer", "default": 60},
                         },
                         "required": ["host_name", "command"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "run_command_batch",
+                    "description": "并发在多台主机执行同一命令，默认部分失败不会中断整体",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "host_names": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "minItems": 1,
+                            },
+                            "command": {"type": "string"},
+                            "timeout": {"type": "integer", "default": 60},
+                            "max_workers": {"type": "integer", "default": 5},
+                        },
+                        "required": ["host_names", "command"],
                     },
                 },
             },
@@ -127,9 +170,24 @@ class AlmaRuntimeAdapter:
             return list_hosts()
         if tool_name == "test_connection":
             return test_connection(args["host_name"], args.get("timeout", 15))
+        if tool_name == "test_connection_batch":
+            result: BatchConnectionResult = test_connection_batch(
+                args["host_names"],
+                args.get("timeout", 15),
+                args.get("max_workers", 5),
+            )
+            return result.model_dump()
         if tool_name == "run_command":
             result: CommandResult = run_command(
                 args["host_name"], args["command"], args.get("timeout", 60)
+            )
+            return result.model_dump()
+        if tool_name == "run_command_batch":
+            result: BatchCommandResult = run_command_batch(
+                args["host_names"],
+                args["command"],
+                args.get("timeout", 60),
+                args.get("max_workers", 5),
             )
             return result.model_dump()
         if tool_name == "upload_file":

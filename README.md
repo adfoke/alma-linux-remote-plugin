@@ -174,7 +174,9 @@ print(invoke("stop_audit_web_server", {}))
 
 - `list_hosts()`
 - `test_connection(host_name, timeout=15)`
+- `test_connection_batch(host_names, timeout=15, max_workers=5)`
 - `run_command(host_name, command, timeout=60)`
+- `run_command_batch(host_names, command, timeout=60, max_workers=5)`
 - `upload_file(host_name, local_path, remote_path)`
 - `download_file(host_name, remote_path, local_path)`
 - `start_audit_web_server(host=None, port=None)`
@@ -199,13 +201,30 @@ print(invoke("list_hosts", {}))
 # 测试连接
 print(invoke("test_connection", {"host_name": "my-server"}))
 
+# 批量测试连接
+print(invoke("test_connection_batch", {
+    "host_names": ["web-1", "web-2", "web-3"],
+    "max_workers": 3
+}))
+
 # 执行命令
 res = invoke("run_command", {
     "host_name": "my-server",
     "command": "uname -a"
 })
 print(res)
+
+# 批量执行命令
+batch_res = invoke("run_command_batch", {
+    "host_names": ["web-1", "web-2", "web-3"],
+    "command": "uptime",
+    "max_workers": 3
+})
+print(batch_res)
 ```
+
+`run_command_batch` 会并发执行，但返回结果顺序会保持与 `host_names` 输入一致。
+单台主机失败或被策略拦截时，不会中断整批任务；请检查返回中的 `success`、`blocked` 与 `reason` 字段。
 
 ---
 

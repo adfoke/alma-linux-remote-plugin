@@ -1,13 +1,16 @@
 from unittest.mock import MagicMock
 
+from alma_linux_remote_plugin.models import BatchCommandItem, BatchCommandResult
 from alma_linux_remote_plugin.tools import (
     download_file,
     get_audit_web_server_status,
     list_hosts,
     run_command,
+    run_command_batch,
     start_audit_web_server,
     stop_audit_web_server,
     test_connection as tool_test_connection,
+    test_connection_batch,
     upload_file,
 )
 
@@ -45,6 +48,52 @@ def test_test_connection_exception(monkeypatch):
     assert "连接异常" in result
 
 
+def test_test_connection_batch(monkeypatch):
+    monkeypatch.setattr(
+        "alma_linux_remote_plugin.tools.SessionManager.run_command_batch",
+        lambda *args, **kwargs: BatchCommandResult(
+            total=3,
+            success_count=1,
+            failure_count=2,
+            items=[
+                BatchCommandItem(
+                    host_name="ok-host",
+                    command="echo 'connected'",
+                    exit_code=0,
+                    stdout="connected",
+                    stderr="",
+                    success=True,
+                ),
+                BatchCommandItem(
+                    host_name="fail-host",
+                    command="echo 'connected'",
+                    exit_code=1,
+                    stdout="",
+                    stderr="",
+                    success=False,
+                ),
+                BatchCommandItem(
+                    host_name="err-host",
+                    command="echo 'connected'",
+                    exit_code=255,
+                    stdout="",
+                    stderr="boom",
+                    success=False,
+                ),
+            ],
+        ),
+    )
+
+    result = test_connection_batch(["ok-host", "fail-host", "err-host"])
+
+    assert result.total == 3
+    assert result.success_count == 1
+    assert result.failure_count == 2
+    assert result.items[0].message == "ok-host 连接成功"
+    assert result.items[1].message == "fail-host 连接失败"
+    assert result.items[2].message == "err-host 连接异常: boom"
+
+
 def test_run_command(monkeypatch):
     mock_result = MagicMock()
     monkeypatch.setattr(
@@ -53,6 +102,18 @@ def test_run_command(monkeypatch):
     )
 
     result = run_command("test-server", "ls")
+    assert result == mock_result
+
+
+def test_run_command_batch(monkeypatch):
+    mock_result = MagicMock()
+    monkeypatch.setattr(
+        "alma_linux_remote_plugin.tools.SessionManager.run_command_batch",
+        lambda *args, **kwargs: mock_result,
+    )
+
+    result = run_command_batch(["test-server-1", "test-server-2"], "ls")
+
     assert result == mock_result
 
 

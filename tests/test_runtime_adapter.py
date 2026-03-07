@@ -7,7 +7,7 @@ from alma_linux_remote_plugin.runtime_adapter import adapter
 
 def test_get_tools():
     tools = adapter.get_tools()
-    assert len(tools) == 8
+    assert len(tools) == 10
 
 
 @patch("alma_linux_remote_plugin.runtime_adapter.list_hosts")
@@ -30,6 +30,61 @@ def test_invoke_run_command(mock_run_command):
         },
     )
     assert result["success"] is True
+
+
+@patch("alma_linux_remote_plugin.runtime_adapter.test_connection_batch")
+def test_invoke_test_connection_batch(mock_test_connection_batch):
+    mock_result = type(
+        "R",
+        (),
+        {
+            "model_dump": lambda self: {
+                "total": 2,
+                "success_count": 1,
+                "failure_count": 1,
+                "items": [
+                    {"host_name": "h1", "success": True, "message": "h1 连接成功"},
+                    {"host_name": "h2", "success": False, "message": "h2 连接失败"},
+                ],
+            }
+        },
+    )()
+    mock_test_connection_batch.return_value = mock_result
+
+    result = adapter.invoke(
+        "test_connection_batch",
+        {
+            "host_names": ["h1", "h2"],
+        },
+    )
+    assert result["total"] == 2
+    assert result["failure_count"] == 1
+
+
+@patch("alma_linux_remote_plugin.runtime_adapter.run_command_batch")
+def test_invoke_run_command_batch(mock_run_command_batch):
+    mock_result = type(
+        "R",
+        (),
+        {
+            "model_dump": lambda self: {
+                "total": 2,
+                "success_count": 2,
+                "failure_count": 0,
+                "items": [],
+            }
+        },
+    )()
+    mock_run_command_batch.return_value = mock_result
+
+    result = adapter.invoke(
+        "run_command_batch",
+        {
+            "host_names": ["test-server-1", "test-server-2"],
+            "command": "uptime",
+        },
+    )
+    assert result["total"] == 2
 
 
 @patch("alma_linux_remote_plugin.runtime_adapter.upload_file")

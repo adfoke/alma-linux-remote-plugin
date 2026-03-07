@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock
 
+import pytest
+
 from alma_linux_remote_plugin.models import HostAuth, HostConfig
 from alma_linux_remote_plugin.session_manager import SessionManager
 
@@ -83,3 +85,107 @@ def test_run_command_block_dangerous(monkeypatch):
     assert result.reason and result.reason.startswith("blocked_by_pattern")
     assert "危险操作已拦截" in result.stderr
     assert called["ensure"] is False
+
+
+def test_run_command_batch_collects_results_in_input_order(monkeypatch):
+    SessionManager._sessions = {}
+    SessionManager._cleanup_thread = None
+
+    def fake_run_command(host_name, command, timeout=60):
+        mock_result = MagicMock()
+        mock_result.model_dump.return_value = {
+            "command": command,
+            "exit_code": 0,
+            "stdout": f"{host_name}:ok",
+            "stderr": "",
+            "success": True,
+            "blocked": False,
+            "reason": None,
+            "suggestions": [],
+        }
+        return mock_result
+
+    monkeypatch.setattr(
+        "alma_linux_remote_plugin.session_manager.SessionManager.run_command",
+        fake_run_command,
+    )
+
+    result = SessionManager.run_command_batch(["h1", "h2", "h1"], "hostname", max_workers=8)
+
+    assert result.total == 2
+    assert result.success_count == 2
+    assert result.failure_count == 0
+    assert [item.host_name for item in result.items] == ["h1", "h2"]
+    assert [item.stdout for item in result.items] == ["h1:ok", "h2:ok"]
+
+
+def test_run_command_batch_captures_exception_per_host(monkeypatch):
+    SessionManager._sessions = {}
+    SessionManager._cleanup_thread = None
+
+    def fake_run_command(host_name, command, timeout=60):
+        if host_name == "bad":
+            raise ValueError("主机 bad 未配置")
+        mock_result = MagicMock()
+        mock_result.model_dump.return_value = {
+            "command": command,
+            "exit_code": 0,
+            "stdout": "ok",
+            "stderr": "",
+            "success": True,
+            "blocked": False,
+            "reason": None,
+            "suggestions": [],
+        }
+        return mock_result
+
+    monkeypatch.setattr(
+        "alma_linux_remote_plugin.session_manager.SessionManager.run_command",
+        fake_run_command,
+    )
+
+    result = SessionManager.run_command_batch(["good", "bad"], "uptime")
+
+    assert result.total == 2
+    assert result.success_count == 1
+    assert result.failure_count == 1
+    assert result.items[1].host_name == "bad"
+    assert result.items[1].success is False
+    assert result.items[1].exit_code == 255
+    assert "未配置" in result.items[1].stderr
+
+
+def test_run_command_batch_preserves_blocked_result(monkeypatch):
+    SessionManager._sessions = {}
+    SessionManager._cleanup_thread = None
+
+    def fake_run_command(host_name, command, timeout=60):
+        mock_result = MagicMock()
+        mock_result.model_dump.return_value = {
+            "command": command,
+            "exit_code": 126,
+            "stdout": "",
+            "stderr": "危险操作已拦截，请用户自行操作",
+            "success": False,
+            "blocked": True,
+            "reason": "dangerous_operation",
+            "suggestions": ["请用户自行 SSH 登录目标主机执行该命令"],
+        }
+        return mock_result
+
+    monkeypatch.setattr(
+        "alma_linux_remote_plugin.session_manager.SessionManager.run_command",
+        fake_run_command,
+    )
+
+    result = SessionManager.run_command_batch(["h1"], "rm -rf /")
+
+    assert result.total == 1
+    assert result.failure_count == 1
+    assert result.items[0].blocked is True
+    assert result.items[0].reason == "dangerous_operation"
+
+
+def test_run_command_batch_requires_hosts():
+    with pytest.raises(ValueError, match="host_names 不能为空"):
+        SessionManager.run_command_batch([], "uptime")

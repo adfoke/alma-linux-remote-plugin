@@ -29,6 +29,32 @@ class CommandResult(BaseModel):
     suggestions: list[str] = Field(default_factory=list)
 
 
+class BatchCommandItem(CommandResult):
+    host_name: str
+
+
+class BatchCommandResult(BaseModel):
+    total: int
+    success_count: int
+    failure_count: int
+    items: list[BatchCommandItem] = Field(default_factory=list)
+
+
+class BatchConnectionItem(BaseModel):
+    host_name: str
+    success: bool
+    message: str
+    blocked: bool = False
+    reason: Optional[str] = None
+
+
+class BatchConnectionResult(BaseModel):
+    total: int
+    success_count: int
+    failure_count: int
+    items: list[BatchConnectionItem] = Field(default_factory=list)
+
+
 class SessionConfig(BaseModel):
     idle_timeout_seconds: int = 300
 

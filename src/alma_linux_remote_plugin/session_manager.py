@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import time
 from typing import Any, Dict
@@ -8,7 +9,7 @@ import paramiko
 
 from .audit import AuditLogger
 from .config import load_config, load_hosts
-from .models import CommandResult, SessionConfig
+from .models import BatchCommandItem, BatchCommandResult, CommandResult, SessionConfig
 from .safety import evaluate_command_policy
 from .ssh import SSHManager
 
@@ -149,6 +150,68 @@ class SessionManager:
             except Exception as e:
                 AuditLogger().log("run_command", host_name, {"error": str(e)})
                 raise
+
+    @classmethod
+    def run_command_batch(
+        cls,
+        host_names: list[str],
+        command: str,
+        timeout: int = 60,
+        max_workers: int = 5,
+    ) -> BatchCommandResult:
+        unique_host_names = list(dict.fromkeys(host_names))
+        if not unique_host_names:
+            raise ValueError("host_names 不能为空")
+
+        worker_count = max(1, min(max_workers, len(unique_host_names), 10))
+        results_by_host: Dict[str, BatchCommandItem] = {}
+
+        def _run_one(host_name: str) -> BatchCommandItem:
+            try:
+                result = cls.run_command(host_name, command, timeout)
+                return BatchCommandItem(host_name=host_name, **result.model_dump())
+            except Exception as exc:
+                return BatchCommandItem(
+                    host_name=host_name,
+                    command=command,
+                    exit_code=255,
+                    stdout="",
+                    stderr=str(exc),
+                    success=False,
+                    blocked=False,
+                    reason=None,
+                    suggestions=[],
+                )
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {
+                executor.submit(_run_one, host_name): host_name for host_name in unique_host_names
+            }
+            for future in as_completed(future_map):
+                host_name = future_map[future]
+                results_by_host[host_name] = future.result()
+
+        ordered_items = [results_by_host[host_name] for host_name in unique_host_names]
+        success_count = sum(1 for item in ordered_items if item.success)
+        batch_result = BatchCommandResult(
+            total=len(ordered_items),
+            success_count=success_count,
+            failure_count=len(ordered_items) - success_count,
+            items=ordered_items,
+        )
+        AuditLogger().log(
+            "run_command_batch",
+            ",".join(unique_host_names),
+            {
+                "command": command,
+                "host_count": len(unique_host_names),
+                "success_count": batch_result.success_count,
+                "failure_count": batch_result.failure_count,
+                "max_workers": worker_count,
+                "hosts": unique_host_names,
+            },
+        )
+        return batch_result
 
     @classmethod
     def upload_file(cls, host_name: str, local_path: str, remote_path: str) -> str:

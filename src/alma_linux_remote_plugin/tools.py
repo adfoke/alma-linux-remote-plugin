@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from .audit import AuditLogger
 from .config import load_hosts
-from .models import CommandResult
+from .models import BatchCommandResult, BatchConnectionItem, BatchConnectionResult, CommandResult
 from .session_manager import SessionManager
 
 
@@ -25,6 +25,58 @@ def test_connection(host_name: str, timeout: int = 15) -> str:
 def run_command(host_name: str, command: str, timeout: int = 60) -> CommandResult:
     """执行命令（自动 Lazy Session + 状态保留）。"""
     return SessionManager.run_command(host_name, command, timeout)
+
+
+def test_connection_batch(
+    host_names: List[str],
+    timeout: int = 15,
+    max_workers: int = 5,
+) -> BatchConnectionResult:
+    """并发测试多台主机连通性，返回逐台结果。"""
+    batch_result = SessionManager.run_command_batch(
+        host_names,
+        "echo 'connected'",
+        timeout,
+        max_workers,
+    )
+    items: List[BatchConnectionItem] = []
+    for item in batch_result.items:
+        if item.success:
+            message = f"{item.host_name} 连接成功"
+        elif item.exit_code == 255 and item.stderr:
+            message = f"{item.host_name} 连接异常: {item.stderr}"
+        else:
+            message = f"{item.host_name} 连接失败"
+        items.append(
+            BatchConnectionItem(
+                host_name=item.host_name,
+                success=item.success,
+                message=message,
+                blocked=item.blocked,
+                reason=item.reason,
+            )
+        )
+
+    success_count = sum(1 for item in items if item.success)
+    return BatchConnectionResult(
+        total=len(items),
+        success_count=success_count,
+        failure_count=len(items) - success_count,
+        items=items,
+    )
+
+
+test_connection_batch.__test__ = False
+
+
+def run_command_batch(
+    host_names: List[str],
+    command: str,
+    timeout: int = 60,
+    max_workers: int = 5,
+) -> BatchCommandResult:
+    """并发在多台主机执行同一命令，返回结构化结果。"""
+    return SessionManager.run_command_batch(host_names, command, timeout, max_workers)
 
 
 def upload_file(host_name: str, local_path: str, remote_path: str) -> str:
